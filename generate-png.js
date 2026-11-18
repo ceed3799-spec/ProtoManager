@@ -3,35 +3,29 @@ const zlib = require('zlib');
 const path = require('path');
 
 function createSimplePNG(width, height) {
-  // Signature PNG
   const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
-  // Chunk IHDR
   const ihdrData = Buffer.alloc(13);
   ihdrData.writeUInt32BE(width, 0);
   ihdrData.writeUInt32BE(height, 4);
-  ihdrData.writeUInt8(8, 8); // 8-bit depth
-  ihdrData.writeUInt8(6, 9); // RGBA (Truecolor with alpha)
-  ihdrData.writeUInt8(0, 10); // Compression method
-  ihdrData.writeUInt8(0, 11); // Filter method
-  ihdrData.writeUInt8(0, 12); // Interlace method
+  ihdrData.writeUInt8(8, 8);
+  ihdrData.writeUInt8(6, 9);
+  ihdrData.writeUInt8(0, 10);
+  ihdrData.writeUInt8(0, 11);
+  ihdrData.writeUInt8(0, 12);
   const ihdrChunk = makeChunk('IHDR', ihdrData);
 
-  // Raw image data with filter byte 0 at start of each scanline
   const scanlineLength = width * 4 + 1;
   const rawData = Buffer.alloc(height * scanlineLength);
 
   for (let y = 0; y < height; y++) {
     const rowOffset = y * scanlineLength;
-    rawData[rowOffset] = 0; // Filter type 0 (None)
+    rawData[rowOffset] = 0;
 
     for (let x = 0; x < width; x++) {
       const pixelOffset = rowOffset + 1 + x * 4;
 
-      // Distance from center
-      const dx = (x - width / 2) / (width / 2);
       const dy = (y - height / 2) / (height / 2);
-      const r = Math.sqrt(dx * dx + dy * dy);
 
       // Fond dégradé sombre émeraude / ardoise
       let red = 10;
@@ -39,7 +33,6 @@ function createSimplePNG(width, height) {
       let blue = Math.floor(30 + (1 - dy) * 20);
       let alpha = 255;
 
-      // Dessin géométrique du "P" de ProtoManager au centre
       const nx = x / width;
       const ny = y / height;
 
@@ -62,15 +55,6 @@ function createSimplePNG(width, height) {
         red = 167;
         green = 243;
         blue = 208;
-      }
-
-      // Pastille atelier bleue en bas à droite
-      const bdx = nx - 0.68;
-      const bdy = ny - 0.68;
-      if (bdx*bdx + bdy*bdy < 0.004) {
-        red = 59;
-        green = 130;
-        blue = 246; // Blue #3b82f6
       }
 
       rawData[pixelOffset] = red;
@@ -100,7 +84,6 @@ function makeChunk(type, data) {
   return Buffer.concat([lenBuf, typeBuf, data, crcBuf]);
 }
 
-// Table CRC32 standard
 const crcTable = [];
 for (let n = 0; n < 256; n++) {
   let c = n;
@@ -118,7 +101,6 @@ function crc32(buf) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-// Générer 192x192 et 512x512
 const p192 = createSimplePNG(192, 192);
 fs.writeFileSync(path.join(__dirname, 'apple-touch-icon.png'), p192);
 fs.writeFileSync(path.join(__dirname, 'icon-192.png'), p192);
@@ -126,4 +108,4 @@ fs.writeFileSync(path.join(__dirname, 'icon-192.png'), p192);
 const p512 = createSimplePNG(512, 512);
 fs.writeFileSync(path.join(__dirname, 'icon-512.png'), p512);
 
-console.log('Icônes PNG générées : apple-touch-icon.png, icon-192.png, icon-512.png');
+console.log('Icônes PNG régénérées proprement sans point bleu !');

@@ -2109,17 +2109,19 @@
       window.print();
     });
 
-    // --- VÉRIFICATEUR DE MISE À JOUR AUTOMATIQUE ---
-    const CURRENT_BUILD = 1795033800000;
-
+    // --- VÉRIFICATEUR DE MISE À JOUR AUTOMATIQUE (iPhone & PC) ---
     async function checkForUpdates() {
       try {
         const res = await fetch('./version.json?t=' + Date.now(), { cache: 'no-store' });
         if (!res.ok) return;
         const info = await res.json();
-        if (info.buildTime && info.buildTime > CURRENT_BUILD) {
-          const toast = document.getElementById('updateToast');
-          if (toast) toast.classList.remove('hidden');
+        const savedBuild = parseInt(localStorage.getItem('proto_app_build') || '0', 10);
+        if (info.buildTime && info.buildTime > savedBuild) {
+          localStorage.setItem('proto_app_build', info.buildTime);
+          if (savedBuild > 0) {
+            console.log("Nouvelle version détectée, rechargement automatique...");
+            window.location.reload(true);
+          }
         }
       } catch (e) {}
     }
