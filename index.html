@@ -207,6 +207,18 @@
           </div>
         </div>
 
+        <!-- Version & Cache de l'application -->
+        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center justify-between gap-3">
+          <div>
+            <div class="font-bold text-sm text-slate-900">Version & Cache</div>
+            <p class="text-xs text-slate-500">ProtoManager v2.1.1</p>
+          </div>
+          <button type="button" id="btnForceUpdate" class="px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-xs font-bold text-slate-800 transition shadow-2xs flex items-center gap-1.5 active:scale-95">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            <span>Recharger l'app</span>
+          </button>
+        </div>
+
         <!-- Astuce iPhone PWA -->
         <div class="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 text-xs text-emerald-900 flex items-start gap-3">
           <i data-lucide="smartphone" class="w-5 h-5 text-emerald-700 flex-shrink-0 mt-0.5"></i>
@@ -652,6 +664,17 @@
     </section>
 
   </main>
+
+  <!-- Toast de nouvelle version disponible -->
+  <div id="updateToast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-2xl border border-slate-700 text-xs flex items-center gap-3 transition-all duration-300 hidden">
+    <span class="flex items-center gap-1.5 font-medium">
+      <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+      Nouvelle version disponible !
+    </span>
+    <button type="button" id="btnApplyUpdateToast" class="px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-bold text-white transition shadow-xs active:scale-95">
+      Mettre à jour
+    </button>
+  </div>
 
 
   <!-- ============================================================== -->
@@ -2086,6 +2109,34 @@
       window.print();
     });
 
+    // --- VÉRIFICATEUR DE MISE À JOUR AUTOMATIQUE ---
+    const CURRENT_BUILD = 1795033800000;
+
+    async function checkForUpdates() {
+      try {
+        const res = await fetch('./version.json?t=' + Date.now(), { cache: 'no-store' });
+        if (!res.ok) return;
+        const info = await res.json();
+        if (info.buildTime && info.buildTime > CURRENT_BUILD) {
+          const toast = document.getElementById('updateToast');
+          if (toast) toast.classList.remove('hidden');
+        }
+      } catch (e) {}
+    }
+
+    document.getElementById('btnApplyUpdateToast')?.addEventListener('click', () => {
+      window.location.reload(true);
+    });
+
+    document.getElementById('btnForceUpdate')?.addEventListener('click', () => {
+      if ('caches' in window) {
+        caches.keys().then((names) => {
+          names.forEach((name) => caches.delete(name));
+        });
+      }
+      window.location.reload(true);
+    });
+
     // --- INITIALISATION AU CHARGEMENT ---
     window.addEventListener('DOMContentLoaded', async () => {
       initDateInputs();
@@ -2093,6 +2144,8 @@
       updateEntityButtonsUI();
       await loadData();
       renderAll();
+      checkForUpdates();
+      setInterval(checkForUpdates, 2 * 60 * 1000);
     });
   </script>
 </body>
