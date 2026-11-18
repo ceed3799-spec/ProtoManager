@@ -273,6 +273,13 @@
           </div>
 
           <div class="flex items-center gap-2">
+            <span class="font-bold text-slate-600">Projet :</span>
+            <select id="pdfFilterProject" class="bg-white border border-slate-300 rounded-lg px-2.5 py-1 font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-700 max-w-[150px] truncate">
+              <option value="all">Tous les projets</option>
+            </select>
+          </div>
+
+          <div class="flex items-center gap-2">
             <span class="font-bold text-slate-600">Période :</span>
             <select id="pdfFilterPeriod" class="bg-white border border-slate-300 rounded-lg px-2.5 py-1 font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-700">
               <option value="current">Période active du carnet</option>
@@ -560,6 +567,14 @@
               <button data-groupby="type" class="btn-groupby px-2.5 py-1 rounded-lg hover:text-slate-900">Type</button>
             </div>
           </div>
+
+          <!-- Filtre spécifique par Projet -->
+          <div class="flex items-center gap-2 text-xs">
+            <span class="font-bold text-slate-400 uppercase tracking-wider">Filtrer :</span>
+            <select id="filterSelectProject" class="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1 font-bold text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 max-w-[160px] truncate">
+              <option value="all">Tous les projets</option>
+            </select>
+          </div>
         </div>
 
         <!-- Barres de répartition -->
@@ -570,9 +585,17 @@
 
       <!-- CARTE HISTORIQUE -->
       <div class="bg-white rounded-3xl p-5 sm:p-7 border border-slate-200/90 shadow-sm">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-base font-bold text-slate-900 tracking-tight">Historique des sessions</h3>
-          <span id="historyCountBadge" class="text-xs bg-slate-100 text-slate-600 font-bold px-2.5 py-1 rounded-full">0 entrée</span>
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div class="flex items-center gap-2">
+            <h3 class="text-base font-bold text-slate-900 tracking-tight">Historique des sessions</h3>
+            <span id="historyCountBadge" class="text-xs bg-slate-100 text-slate-600 font-bold px-2.5 py-1 rounded-full">0 entrée</span>
+          </div>
+
+          <!-- Recherche rapide -->
+          <div class="relative w-full sm:w-48">
+            <input type="text" id="inputSearchQuery" placeholder="Rechercher note, pièce..." class="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-700">
+            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
+          </div>
         </div>
 
         <div id="historyList" class="space-y-6">
@@ -616,6 +639,8 @@
       selectedEntity: "Froidevaux", // 'Froidevaux' ou 'Wprojet'
       selectedType: "",
       periodFilter: "week",         // 'week', 'month', 'all'
+      projectFilter: "all",         // 'all' ou nom du projet
+      searchQuery: "",              // Recherche mot-clé
       groupBy: "project",           // 'project', 'entity', 'client', 'type'
       editingId: null,
       currentPhotos: [],            // Photos temporaires pour l'entrée en cours (Base64)
@@ -1176,14 +1201,27 @@
     }
 
     function updateDatalistsAndPills() {
-      const projects = [...new Set(state.entries.map(e => e.project).filter(Boolean))];
-      const clients = [...new Set(state.entries.map(e => e.client).filter(Boolean))];
+      const projects = [...new Set(state.entries.map(e => e.project).filter(Boolean))].sort();
+      const clients = [...new Set(state.entries.map(e => e.client).filter(Boolean))].sort();
 
       document.getElementById('recentProjectsList').innerHTML = 
         projects.map(p => `<option value="${escapeHtml(p)}">`).join('');
 
       document.getElementById('recentClientsList').innerHTML = 
         clients.map(c => `<option value="${escapeHtml(c)}">`).join('');
+
+      // Sélecteur de filtre de projet
+      const filterSelect = document.getElementById('filterSelectProject');
+      const currentSelected = state.projectFilter;
+      filterSelect.innerHTML = `<option value="all">Tous les projets</option>` + 
+        projects.map(p => `<option value="${escapeHtml(p)}" ${p === currentSelected ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('');
+
+      // Sélecteur de filtre dans le PDF
+      const pdfSelect = document.getElementById('pdfFilterProject');
+      if (pdfSelect) {
+        pdfSelect.innerHTML = `<option value="all">Tous les projets</option>` + 
+          projects.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+      }
 
       const pillsContainer = document.getElementById('quickProjectPills');
       pillsContainer.innerHTML = '';
@@ -1304,7 +1342,33 @@
     }
 
 
-    // --- FILTRAGE DE PÉRIODE ---
+    // Écouteur sur le filtre de projet et la recherche
+    document.getElementById('filterSelectProject').addEventListener('change', (e) => {
+      state.projectFilter = e.target.value;
+      renderAll();
+    });
+
+    document.getElementById('inputSearchQuery').addEventListener('input', (e) => {
+      state.searchQuery = e.target.value.trim().toLowerCase();
+      renderAll();
+    });
+
+    // Helper de filtrage complet
+    function filterEntries(entries, period, projectFilter, query) {
+      return entries.filter(e => {
+        const inPeriod = isDateInPeriod(e.date, period);
+        const inProj = (projectFilter === 'all') || (e.project === projectFilter);
+        let inSearch = true;
+        if (query) {
+          const matchNotes = (e.notes || "").toLowerCase().includes(query);
+          const matchProj = (e.project || "").toLowerCase().includes(query);
+          const matchClient = (e.client || "").toLowerCase().includes(query);
+          const matchType = (e.type || "").toLowerCase().includes(query);
+          inSearch = matchNotes || matchProj || matchClient || matchType;
+        }
+        return inPeriod && inProj && inSearch;
+      });
+    }
     function isDateInPeriod(isoDate, period) {
       if (period === 'all') return true;
       const [y, m, d] = isoDate.split('-').map(Number);
@@ -1374,7 +1438,7 @@
 
     // --- RENDU SYNTHÈSE TOTAUX (Avec Froidevaux & Wprojet) ---
     function renderSynthesis() {
-      const filtered = state.entries.filter(e => isDateInPeriod(e.date, state.periodFilter));
+      const filtered = filterEntries(state.entries, state.periodFilter, state.projectFilter, state.searchQuery);
       
       const totalMinutes = filtered.reduce((acc, it) => acc + (it.minutes || 0), 0);
       const froidMinutes = filtered.filter(it => (it.entity || "Froidevaux") === "Froidevaux")
@@ -1400,8 +1464,11 @@
       const countStr = count === 1 ? "1 session" : `${count} sessions`;
       const daysStr = distinctDays === 1 ? "1 jour" : `${distinctDays} jours`;
 
+      let projectLabel = state.projectFilter !== 'all' ? ` · Projet : ${state.projectFilter}` : '';
+      if (state.searchQuery) projectLabel += ` · Recherche: "${state.searchQuery}"`;
+
       document.getElementById('synthPeriodLabel').textContent = 
-        `${getPeriodLabel(state.periodFilter)} · ${countStr} · ${daysStr}`;
+        `${getPeriodLabel(state.periodFilter)}${projectLabel} · ${countStr} · ${daysStr}`;
 
       // Regroupement
       const groupMap = {};
@@ -1454,8 +1521,7 @@
 
     // --- RENDU HISTORIQUE (Avec Badges Froidevaux/Wprojet et Photos) ---
     function renderHistory() {
-      const filtered = state.entries
-        .filter(e => isDateInPeriod(e.date, state.periodFilter))
+      const filtered = filterEntries(state.entries, state.periodFilter, state.projectFilter, state.searchQuery)
         .sort((a, b) => {
           if (b.date !== a.date) return b.date.localeCompare(a.date);
           return (b.createdAt || 0) - (a.createdAt || 0);
@@ -1686,9 +1752,11 @@
     pdfFilterEntity.addEventListener('change', generatePdfPreview);
     pdfFilterPeriod.addEventListener('change', generatePdfPreview);
     pdfIncludePhotos.addEventListener('change', generatePdfPreview);
+    document.getElementById('pdfFilterProject').addEventListener('change', generatePdfPreview);
 
     function generatePdfPreview() {
       const entityFilter = pdfFilterEntity.value;
+      const projectFilter = document.getElementById('pdfFilterProject').value;
       const periodFilter = pdfFilterPeriod.value === "current" ? state.periodFilter : pdfFilterPeriod.value;
       const includePhotos = pdfIncludePhotos.checked;
 
@@ -1696,7 +1764,8 @@
       const filtered = state.entries.filter(e => {
         const matchPeriod = isDateInPeriod(e.date, periodFilter);
         const matchEntity = entityFilter === "all" || (e.entity || "Froidevaux") === entityFilter;
-        return matchPeriod && matchEntity;
+        const matchProject = projectFilter === "all" || e.project === projectFilter;
+        return matchPeriod && matchEntity && matchProject;
       }).sort((a, b) => b.date.localeCompare(a.date));
 
       const totalMinutes = filtered.reduce((acc, it) => acc + (it.minutes || 0), 0);
@@ -1722,6 +1791,7 @@
           <div class="text-right text-xs text-slate-500">
             <div>Édité le : <strong class="text-slate-800">${todayFr}</strong></div>
             <div>Période : <strong class="text-slate-800">${getPeriodLabel(periodFilter)}</strong></div>
+            ${projectFilter !== 'all' ? `<div>Projet : <strong class="text-slate-900">${escapeHtml(projectFilter)}</strong></div>` : ''}
             ${entityFilter !== 'all' ? `<div>Filtre : <strong class="text-emerald-800">${entityFilter}</strong></div>` : ''}
           </div>
         </div>
