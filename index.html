@@ -1,0 +1,1849 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>ProtoManager - Suivi Projets & Fabrication</title>
+  
+  <!-- PWA & Mobile Web App Meta -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ProtoManager">
+  <meta name="theme-color" content="#064e3b">
+
+  <!-- Tailwind CSS v3 via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- html2pdf.js via CDN pour génération PDF directe -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            proto: {
+              50: '#ecfdf5',
+              100: '#d1fae5',
+              600: '#059669',
+              700: '#047857',
+              800: '#065f46',
+              900: '#064e3b',
+              950: '#022c22'
+            },
+            froidevaux: {
+              light: '#eff6ff',
+              text: '#1e40af',
+              border: '#93c5fd',
+              badge: '#dbeafe',
+              dot: '#2563eb'
+            },
+            wprojet: {
+              light: '#faf5ff',
+              text: '#6b21a8',
+              border: '#d8b4fe',
+              badge: '#f3e8ff',
+              dot: '#9333ea'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    input, button, select, textarea {
+      font-family: inherit;
+    }
+    /* Safe area pour iPhone avec encoche / Dynamic Island */
+    header {
+      padding-top: max(0.875rem, env(safe-area-inset-top));
+    }
+    .safe-bottom {
+      padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+    }
+
+    /* Styles d'impression et PDF */
+    @media print {
+      body {
+        background: white !important;
+        color: black !important;
+      }
+      header, #entryForm, section:first-of-type, .no-print, button, #btnQuickLock, #btnOpenSettings {
+        display: none !important;
+      }
+      main {
+        display: block !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        max-width: 100% !important;
+      }
+      section {
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+      }
+      .page-break-avoid {
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+    }
+    .pin-dot.active {
+      background-color: #059669;
+      transform: scale(1.15);
+    }
+    .shake {
+      animation: shake 0.35s cubic-bezier(.36,.07,.19,.97) both;
+    }
+    @keyframes shake {
+      10%, 90% { transform: translate3d(-2px, 0, 0); }
+      20%, 80% { transform: translate3d(4px, 0, 0); }
+      30%, 50%, 70% { transform: translate3d(-6px, 0, 0); }
+      40%, 60% { transform: translate3d(6px, 0, 0); }
+    }
+  </style>
+</head>
+<body class="bg-[#f8faf9] text-slate-800 min-h-screen flex flex-col antialiased selection:bg-emerald-500 selection:text-white">
+
+  <!-- ============================================================== -->
+  <!-- MODALE VERROUILLAGE CODE PIN (Optionnelle par appareil)       -->
+  <!-- ============================================================== -->
+  <div id="pinLockScreen" class="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-4 transition-all duration-300 hidden">
+    <div class="max-w-xs w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-2xl text-center text-white flex flex-col items-center">
+      
+      <div class="w-16 h-16 rounded-2xl bg-emerald-950 border border-emerald-700/50 flex items-center justify-center text-emerald-400 mb-4 shadow-lg shadow-emerald-950/50">
+        <i data-lucide="lock" class="w-8 h-8"></i>
+      </div>
+
+      <h2 class="text-xl font-bold tracking-tight text-white mb-1">ProtoManager</h2>
+      <p id="pinPromptText" class="text-xs text-slate-400 mb-6">Entrez votre code PIN pour déverrouiller</p>
+
+      <!-- Indicateurs de points du PIN -->
+      <div id="pinDotsContainer" class="flex items-center justify-center gap-3.5 mb-7">
+        <div class="pin-dot w-4 h-4 rounded-full border-2 border-slate-600 transition-all duration-150"></div>
+        <div class="pin-dot w-4 h-4 rounded-full border-2 border-slate-600 transition-all duration-150"></div>
+        <div class="pin-dot w-4 h-4 rounded-full border-2 border-slate-600 transition-all duration-150"></div>
+        <div class="pin-dot w-4 h-4 rounded-full border-2 border-slate-600 transition-all duration-150"></div>
+      </div>
+
+      <!-- Pavé numérique tactile -->
+      <div class="grid grid-cols-3 gap-3 w-full mb-3">
+        <button type="button" class="pin-num-btn h-14 rounded-2xl bg-slate-800 hover:bg-slate-700 text-xl font-bold text-white transition active:scale-95">1</button>
+        <button type="button" class="pin-num-btn h-14 rounded-2xl bg-slate-800 hover:bg-slate-700 text-xl font-bold text-white transition active:scale-95">2</button>
+        <button type="button" class="pin-num-btn h-14 rounded-2xl bg-slate-800 hover:bg-slate-700 text-xl font-bold text-white transition active:scale-95">3</button>
+        <button type="button" class="pin-num-btn h-14 rounded-2xl bg-slate-800 hover:bg-slate-700 text-xl font-bold text-white transition active:scale-95">4</button>
+        <button type="button" class="pin-num-btn h-14 rounded-2xl bg-slate-800 hover:bg-slate-700 text-xl font-bold text-white transition active:scale-95">5</button>
+        <button type="button" class="pin-num-btn h-14 rounded-2xl bg-slate-800 hover:bg-slate-700 text-xl font-bold text-white transition active:scale-95">6</button>
+        <button type="button" class="pin-num-btn h-14 rounded-2xl bg-slate-800 hover:bg-slate-700 text-xl font-bold text-white transition active:scale-95">7</button>
+        <button type="button" class="pin-num-btn h-14 rounded-2xl bg-slate-800 hover:bg-slate-700 text-xl font-bold text-white transition active:scale-95">8</button>
+        <button type="button" class="pin-num-btn h-14 rounded-2xl bg-slate-800 hover:bg-slate-700 text-xl font-bold text-white transition active:scale-95">9</button>
+        <button type="button" id="btnPinClear" class="h-14 rounded-2xl text-xs font-semibold text-slate-400 hover:text-white transition active:scale-95 flex items-center justify-center">Effacer</button>
+        <button type="button" class="pin-num-btn h-14 rounded-2xl bg-slate-800 hover:bg-slate-700 text-xl font-bold text-white transition active:scale-95">0</button>
+        <button type="button" id="btnPinDelete" class="h-14 rounded-2xl text-slate-300 hover:text-white transition active:scale-95 flex items-center justify-center">
+          <i data-lucide="delete" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <p id="pinErrorMessage" class="text-xs text-rose-400 font-medium min-h-[1.25rem]"></p>
+    </div>
+  </div>
+
+
+  <!-- ============================================================== -->
+  <!-- MODALE PARAMÈTRES (Code PIN & Gestion de l'appareil)          -->
+  <!-- ============================================================== -->
+  <div id="settingsModal" class="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 transition-all duration-200 hidden">
+    <div class="max-w-md w-full bg-white rounded-3xl p-6 sm:p-7 shadow-2xl border border-slate-200 text-slate-900">
+      
+      <div class="flex items-center justify-between pb-4 border-b border-slate-100 mb-5">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-700">
+            <i data-lucide="settings" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-base text-slate-900">Paramètres de l'appareil</h3>
+            <p class="text-[11px] text-slate-400">Réglages propres à ce poste de travail</p>
+          </div>
+        </div>
+        <button id="btnCloseSettings" class="w-8 h-8 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-6">
+        <!-- Switch PIN -->
+        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <div class="font-bold text-sm text-slate-900">Verrouillage par code PIN</div>
+              <p class="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                Activer sur les postes à écran partagé (boulot). Désactiver sur les postes personnels (maison).
+              </p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer flex-shrink-0 mt-0.5">
+              <input type="checkbox" id="togglePinSwitch" class="sr-only peer">
+              <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-700"></div>
+            </label>
+          </div>
+
+          <!-- Configuration du PIN si activé -->
+          <div id="pinConfigSection" class="mt-4 pt-4 border-t border-slate-200 hidden space-y-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Code PIN (4 chiffres)</label>
+              <input type="password" id="inputNewPin" maxlength="4" placeholder="Ex: 1234" class="w-full px-3 py-2 rounded-xl border border-slate-300 text-center tracking-widest text-lg font-bold">
+            </div>
+            <p class="text-[11px] text-slate-500">Ce code sera demandé à l'ouverture et quand vous cliquez sur le cadenas.</p>
+          </div>
+        </div>
+
+        <!-- Astuce iPhone PWA -->
+        <div class="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 text-xs text-emerald-900 flex items-start gap-3">
+          <i data-lucide="smartphone" class="w-5 h-5 text-emerald-700 flex-shrink-0 mt-0.5"></i>
+          <div>
+            <div class="font-bold mb-0.5">Installer l'application sur iPhone</div>
+            <p class="text-emerald-800 leading-relaxed">
+              Dans Safari, touchez le bouton <strong>Partager</strong> <i data-lucide="share" class="w-3.5 h-3.5 inline"></i> puis <strong>« Sur l'écran d'accueil »</strong> pour obtenir l'icône ProtoManager en plein écran !
+            </p>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="mt-6 pt-4 border-t border-slate-100 flex justify-end gap-2">
+        <button id="btnSaveSettings" class="px-5 py-2.5 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white font-semibold text-sm transition">
+          Enregistrer
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ============================================================== -->
+  <!-- MODALE RAPPORT PDF & FICHE DE SUIVI                          -->
+  <!-- ============================================================== -->
+  <div id="pdfModal" class="fixed inset-0 z-40 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 transition-all duration-200 hidden">
+    <div class="max-w-4xl w-full bg-white rounded-3xl shadow-2xl border border-slate-200 text-slate-900 max-h-[92vh] flex flex-col overflow-hidden">
+      
+      <!-- En-tête de la modale -->
+      <div class="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 flex-shrink-0 bg-slate-50/70">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center font-bold">
+            <i data-lucide="file-text" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="font-extrabold text-base text-slate-900">Rapport d'activité & Fiche de Prototypage (PDF)</h3>
+            <p class="text-xs text-slate-500">Mise en page A4 élégante avec photos, notes et totaux de facturation</p>
+          </div>
+        </div>
+        
+        <div class="flex items-center gap-2">
+          <button id="btnDirectPrint" class="px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition shadow-2xs flex items-center gap-1.5">
+            <i data-lucide="printer" class="w-4 h-4"></i>
+            <span class="hidden sm:inline">Imprimer</span>
+          </button>
+          <button id="btnDownloadPdf" class="px-4 py-2 text-xs font-bold text-white bg-emerald-800 hover:bg-emerald-900 rounded-xl transition shadow-xs flex items-center gap-1.5">
+            <i data-lucide="download" class="w-4 h-4"></i>
+            <span>Télécharger PDF</span>
+          </button>
+          <button id="btnClosePdfModal" class="w-8 h-8 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-700 flex items-center justify-center ml-2">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Filtres du rapport -->
+      <div class="p-3 sm:px-6 bg-slate-100/60 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-3 text-xs flex-shrink-0">
+        <div class="flex flex-wrap items-center gap-4">
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-slate-600">Entité :</span>
+            <select id="pdfFilterEntity" class="bg-white border border-slate-300 rounded-lg px-2.5 py-1 font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-700">
+              <option value="all">Toutes (Froidevaux & Wprojet)</option>
+              <option value="Froidevaux">Uniquement Froidevaux</option>
+              <option value="Wprojet">Uniquement Wprojet</option>
+            </select>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-slate-600">Période :</span>
+            <select id="pdfFilterPeriod" class="bg-white border border-slate-300 rounded-lg px-2.5 py-1 font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-700">
+              <option value="current">Période active du carnet</option>
+              <option value="all">Tout l'historique</option>
+              <option value="month">Ce mois</option>
+              <option value="week">Cette semaine</option>
+            </select>
+          </div>
+        </div>
+
+        <label class="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
+          <input type="checkbox" id="pdfIncludePhotos" checked class="rounded border-slate-300 text-emerald-700 focus:ring-emerald-700">
+          <span>Inclure les photos des prototypes</span>
+        </label>
+      </div>
+
+      <!-- Aperçu A4 du Rapport (Ce qui sera exporté en PDF) -->
+      <div class="p-4 sm:p-8 overflow-y-auto flex-1 bg-slate-100 flex justify-center">
+        <div id="pdfContentToExport" class="bg-white p-6 sm:p-10 rounded-2xl shadow-md border border-slate-200 max-w-3xl w-full text-slate-900 space-y-6">
+          <!-- Injecté dynamiquement par generatePdfPreview() -->
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- VISIONNEUSE PHOTO PLEIN ÉCRAN (LIGHTBOX)                      -->
+  <!-- ============================================================== -->
+  <div id="photoLightbox" class="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-4 hidden">
+    <button id="btnCloseLightbox" class="absolute top-4 right-4 text-white/80 hover:text-white p-2 rounded-full bg-white/10 hover:bg-white/20 transition">
+      <i data-lucide="x" class="w-6 h-6"></i>
+    </button>
+    <img id="lightboxImage" src="" alt="Aperçu photo" class="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl">
+    <div id="lightboxCaption" class="text-xs text-slate-300 mt-3 text-center max-w-lg"></div>
+  </div>
+
+
+  <!-- ============================================================== -->
+  <!-- EN-TÊTE PRINCIPAL                                              -->
+  <!-- ============================================================== -->
+  <header class="border-b border-slate-200/80 bg-white/95 backdrop-blur sticky top-0 z-20 px-4 sm:px-8 py-3.5 shadow-xs">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      
+      <!-- Logo & Titre -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-700 via-emerald-800 to-slate-900 text-white flex items-center justify-center font-black shadow-md shadow-emerald-900/20 overflow-hidden relative">
+          <img src="icon.svg" alt="ProtoManager Logo" class="w-8 h-8 object-contain">
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-xl font-extrabold tracking-tight text-slate-900">ProtoManager</h1>
+            <span class="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-md border border-slate-200">v2.0</span>
+          </div>
+          <p class="text-[11px] text-slate-500 font-medium hidden sm:block">Suivi de projets, prototypes & fabrication</p>
+        </div>
+      </div>
+
+      <!-- Actions de l'en-tête -->
+      <div class="flex items-center gap-2.5">
+        
+        <!-- Bouton verrouillage rapide (affiché si PIN activé) -->
+        <button id="btnQuickLock" title="Verrouiller l'écran maintenant" class="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition border border-slate-200 hidden">
+          <i data-lucide="lock" class="w-4 h-4"></i>
+        </button>
+
+        <!-- Bouton Paramètres -->
+        <button id="btnOpenSettings" title="Paramètres (Code PIN, Appareil)" class="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition border border-slate-200">
+          <i data-lucide="settings" class="w-4 h-4"></i>
+        </button>
+
+        <!-- Backup & CSV -->
+        <button id="btnExportJson" title="Sauvegarde complète" class="p-2 sm:px-2.5 sm:py-2 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition border border-slate-200 flex items-center gap-1.5">
+          <i data-lucide="download" class="w-4 h-4"></i>
+          <span class="hidden sm:inline">Backup</span>
+        </button>
+        <button id="btnImportJsonTrigger" title="Restaurer sauvegarde" class="p-2 sm:px-2.5 sm:py-2 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition border border-slate-200 flex items-center gap-1.5">
+          <i data-lucide="upload" class="w-4 h-4"></i>
+          <span class="hidden sm:inline">Restaurer</span>
+        </button>
+        <input type="file" id="inputImportJson" accept=".json" class="hidden" />
+
+        <button id="btnExportPdf" class="px-3 py-2 text-xs font-bold text-white bg-slate-900 border border-slate-900 rounded-xl hover:bg-slate-800 transition shadow-xs flex items-center gap-1.5 active:scale-95">
+          <i data-lucide="file-text" class="w-4 h-4 text-rose-400"></i>
+          <span>Rapport PDF</span>
+        </button>
+
+        <button id="btnExportCsv" class="px-3 py-2 text-xs font-semibold text-slate-800 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition shadow-xs flex items-center gap-1.5">
+          <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-700"></i>
+          <span class="hidden sm:inline">CSV</span>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+
+  <!-- ============================================================== -->
+  <!-- CONTENU PRINCIPAL                                              -->
+  <!-- ============================================================== -->
+  <main class="max-w-7xl mx-auto w-full p-3 sm:p-6 lg:p-8 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start safe-bottom">
+    
+    <!-- ========================================== -->
+    <!-- COLONNE GAUCHE : FORMULAIRE DE SAISIE     -->
+    <!-- ========================================== -->
+    <section class="lg:col-span-5 bg-white rounded-3xl p-5 sm:p-7 border border-slate-200/90 shadow-sm relative">
+      <div class="flex items-center justify-between mb-5">
+        <h2 id="formTitle" class="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
+          <span>Nouvelle entrée</span>
+        </h2>
+        <button id="btnCancelEdit" class="hidden text-xs text-rose-600 hover:text-rose-700 underline font-semibold">
+          Annuler la modification
+        </button>
+      </div>
+
+      <form id="entryForm" class="space-y-4 sm:space-y-5">
+        <input type="hidden" id="editEntryId" value="">
+
+        <!-- OPTION : ENTITÉ / FACTURATION (Froidevaux en Bleu, Wprojet en Violet) -->
+        <div>
+          <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+            Entité / Facturation
+          </label>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" data-entity="Froidevaux" class="btn-entity-choice flex items-center justify-center gap-2 py-2.5 px-3 rounded-2xl border-2 transition-all font-bold text-xs bg-blue-50/70 border-blue-600 text-blue-900 shadow-xs">
+              <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
+              <span>Froidevaux</span>
+            </button>
+            <button type="button" data-entity="Wprojet" class="btn-entity-choice flex items-center justify-center gap-2 py-2.5 px-3 rounded-2xl border-2 transition-all font-bold text-xs bg-purple-50/70 border-purple-300 text-purple-900">
+              <span class="w-2.5 h-2.5 rounded-full bg-purple-600"></span>
+              <span>Wprojet</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- DATE -->
+        <div>
+          <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Date</label>
+          <div class="relative">
+            <input type="date" id="inputDate" required class="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 bg-slate-50/70 text-slate-900 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition">
+          </div>
+          <div class="flex items-center gap-2 mt-2">
+            <button type="button" id="btnDateToday" class="px-2.5 py-1 text-xs rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium transition">Aujourd'hui</button>
+            <button type="button" id="btnDateYesterday" class="px-2.5 py-1 text-xs rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium transition">Hier</button>
+            <span id="dateHumanLabel" class="text-xs text-slate-400 ml-auto capitalize truncate"></span>
+          </div>
+        </div>
+
+        <!-- PROJET -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider">Projet</label>
+            <span class="text-[11px] text-slate-400">Requis</span>
+          </div>
+          <input type="text" id="inputProject" placeholder="Ex: Box Liberator, Prototype Châssis..." required class="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 bg-slate-50/70 text-slate-900 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition" list="recentProjectsList">
+          <datalist id="recentProjectsList"></datalist>
+          <!-- Suggestions rapides de projets -->
+          <div id="quickProjectPills" class="flex flex-wrap gap-1.5 mt-2"></div>
+        </div>
+
+        <!-- CLIENT (facultatif) -->
+        <div>
+          <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Client <span class="text-slate-400 font-normal lowercase">(facultatif)</span></label>
+          <input type="text" id="inputClient" placeholder="Ex: Remo Oser, Acme..." class="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 bg-slate-50/70 text-slate-900 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition" list="recentClientsList">
+          <datalist id="recentClientsList"></datalist>
+        </div>
+
+        <!-- DURÉE -->
+        <div>
+          <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Durée</label>
+          <input type="text" id="inputDuration" placeholder="45, 1h30, 2,5" required class="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 bg-slate-50/70 text-slate-900 text-sm font-semibold focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition">
+          
+          <!-- Raccourcis durée -->
+          <div class="grid grid-cols-4 sm:grid-cols-7 gap-1.5 mt-2.5">
+            <button type="button" data-val="15m" class="btn-quick-dur py-1.5 text-xs rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 font-medium transition text-center">15 min</button>
+            <button type="button" data-val="30m" class="btn-quick-dur py-1.5 text-xs rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 font-medium transition text-center">30 min</button>
+            <button type="button" data-val="1h" class="btn-quick-dur py-1.5 text-xs rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 font-medium transition text-center">1 h</button>
+            <button type="button" data-val="1h30" class="btn-quick-dur py-1.5 text-xs rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 font-medium transition text-center">1 h 30</button>
+            <button type="button" data-val="2h" class="btn-quick-dur py-1.5 text-xs rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 font-medium transition text-center">2 h</button>
+            <button type="button" data-val="3h" class="btn-quick-dur py-1.5 text-xs rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 font-medium transition text-center">3 h</button>
+            <button type="button" data-val="4h" class="btn-quick-dur py-1.5 text-xs rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 font-medium transition text-center">4 h</button>
+          </div>
+        </div>
+
+        <!-- TYPE (avec CNC, Atelier, Design, CAD, etc.) -->
+        <div>
+          <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Type d'activité</label>
+          <div id="typeTagsContainer" class="flex flex-wrap gap-1.5">
+            <!-- Rempli en JS -->
+          </div>
+        </div>
+
+        <!-- CE QUE J'AI FAIT -->
+        <div>
+          <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Ce que j'ai fait</label>
+          <textarea id="inputNotes" rows="2" placeholder="Ex. Variantes de poignée, test des perçages CNC, usinage alu..." class="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 bg-slate-50/70 text-slate-900 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition resize-y"></textarea>
+        </div>
+
+        <!-- PHOTOS DU PROTOTYPE / PIÈCE / ATELIER -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider">Photos <span class="text-slate-400 font-normal lowercase">(prototype, usinage...)</span></label>
+            <button type="button" id="btnTriggerPhoto" class="text-xs font-semibold text-emerald-700 hover:text-emerald-800 flex items-center gap-1">
+              <i data-lucide="camera" class="w-3.5 h-3.5"></i>
+              <span>Prendre / Ajouter photo</span>
+            </button>
+          </div>
+          
+          <input type="file" id="inputPhotoFile" accept="image/*" capture="environment" multiple class="hidden">
+
+          <!-- Prévisualisation des photos attachées -->
+          <div id="photoPreviewsList" class="flex flex-wrap gap-2 min-h-[10px]">
+            <!-- Végétation de vignettes en JS -->
+          </div>
+        </div>
+
+        <!-- BOUTON D'ACTION PRINCIPAL -->
+        <button type="submit" id="btnSubmitForm" class="w-full py-3.5 px-4 rounded-2xl bg-emerald-800 hover:bg-emerald-900 text-white font-bold text-sm shadow-md shadow-emerald-950/15 hover:shadow-lg transition-all duration-150 flex items-center justify-center gap-2 active:scale-[0.99]">
+          <i data-lucide="plus-circle" class="w-5 h-5"></i>
+          <span id="btnSubmitText">Ajouter l'entrée</span>
+        </button>
+
+      </form>
+    </section>
+
+
+    <!-- ========================================== -->
+    <!-- COLONNE DROITE : SYNTHÈSE & HISTORIQUE     -->
+    <!-- ========================================== -->
+    <section class="lg:col-span-7 space-y-6">
+      
+      <!-- CARTE SYNTHÈSE TOTAUX (Avec séparation Froidevaux vs Wprojet) -->
+      <div class="bg-white rounded-3xl p-5 sm:p-7 border border-slate-200/90 shadow-sm">
+        
+        <div class="flex flex-wrap items-start justify-between gap-4 mb-4">
+          <div>
+            <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Commun</div>
+            <div class="flex items-baseline gap-2">
+              <span id="synthTotalDuration" class="text-4xl sm:text-5xl font-black text-slate-900 tracking-tight">0 h</span>
+            </div>
+            <div id="synthPeriodLabel" class="text-xs text-slate-500 mt-1">Semaine en cours · 0 entrée</div>
+          </div>
+
+          <!-- Filtres temporels -->
+          <div class="inline-flex p-1 bg-slate-100 rounded-2xl text-xs font-medium text-slate-600 gap-0.5">
+            <button data-period="week" class="btn-period px-3 py-1.5 rounded-xl bg-white text-slate-900 font-bold shadow-xs">Cette semaine</button>
+            <button data-period="month" class="btn-period px-3 py-1.5 rounded-xl hover:text-slate-900">Ce mois</button>
+            <button data-period="all" class="btn-period px-3 py-1.5 rounded-xl hover:text-slate-900">Tout</button>
+          </div>
+        </div>
+
+        <!-- SÉPARATION DÉDIÉE : FROIDEVAUX vs WPROJET -->
+        <div class="grid grid-cols-2 gap-3 p-3 bg-slate-50/80 rounded-2xl border border-slate-200/80 mb-4">
+          <div class="bg-white p-3 rounded-xl border border-blue-200/60 shadow-2xs">
+            <div class="flex items-center justify-between text-xs text-blue-900 font-bold mb-1">
+              <span class="flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-blue-600"></span>
+                Froidevaux
+              </span>
+              <span id="badgeFroidevauxPct" class="text-[11px] text-blue-500 font-mono font-medium">0%</span>
+            </div>
+            <div id="totalFroidevauxHours" class="text-xl sm:text-2xl font-black text-blue-950">0 h</div>
+          </div>
+
+          <div class="bg-white p-3 rounded-xl border border-purple-200/80 shadow-2xs">
+            <div class="flex items-center justify-between text-xs text-purple-900 font-bold mb-1">
+              <span class="flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-purple-600"></span>
+                Wprojet
+              </span>
+              <span id="badgeWprojetPct" class="text-[11px] text-purple-600 font-mono font-medium">0%</span>
+            </div>
+            <div id="totalWprojetHours" class="text-xl sm:text-2xl font-black text-purple-950">0 h</div>
+          </div>
+        </div>
+
+        <!-- Regroupement : Projet / Client / Entité / Type -->
+        <div class="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2 text-xs">
+            <span class="font-bold text-slate-400 uppercase tracking-wider">Par</span>
+            <div class="inline-flex p-0.5 bg-slate-100 rounded-xl text-xs font-medium text-slate-600">
+              <button data-groupby="project" class="btn-groupby px-2.5 py-1 rounded-lg bg-white text-slate-900 font-bold shadow-xs">Projet</button>
+              <button data-groupby="entity" class="btn-groupby px-2.5 py-1 rounded-lg hover:text-slate-900">Entité</button>
+              <button data-groupby="client" class="btn-groupby px-2.5 py-1 rounded-lg hover:text-slate-900">Client</button>
+              <button data-groupby="type" class="btn-groupby px-2.5 py-1 rounded-lg hover:text-slate-900">Type</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Barres de répartition -->
+        <div id="breakdownList" class="mt-4 space-y-3">
+          <!-- Injecté dynamiquement -->
+        </div>
+      </div>
+
+      <!-- CARTE HISTORIQUE -->
+      <div class="bg-white rounded-3xl p-5 sm:p-7 border border-slate-200/90 shadow-sm">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-base font-bold text-slate-900 tracking-tight">Historique des sessions</h3>
+          <span id="historyCountBadge" class="text-xs bg-slate-100 text-slate-600 font-bold px-2.5 py-1 rounded-full">0 entrée</span>
+        </div>
+
+        <div id="historyList" class="space-y-6">
+          <!-- Rempli en JS par groupe de dates -->
+        </div>
+
+        <!-- Message vide -->
+        <div id="historyEmptyState" class="hidden text-center py-12 px-4">
+          <div class="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 mx-auto flex items-center justify-center mb-3">
+            <i data-lucide="calendar-x" class="w-6 h-6"></i>
+          </div>
+          <p class="text-sm font-semibold text-slate-700">Aucune session enregistrée</p>
+          <p class="text-xs text-slate-400 mt-1">Ajoutez votre première activité via le formulaire.</p>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+
+  <!-- ============================================================== -->
+  <!-- LOGIQUE DE L'APPLICATION (JavaScript)                          -->
+  <!-- ============================================================== -->
+  <script>
+    // --- TYPES DE TÂCHES AVEC COULEURS 100% DISTINCTES ---
+    const DEFAULT_TYPES = [
+      { name: "Idées", bg: "bg-amber-100", text: "text-amber-900", border: "border-amber-300" },
+      { name: "Design", bg: "bg-pink-100", text: "text-pink-900", border: "border-pink-300" },
+      { name: "Dessin CAD", bg: "bg-cyan-100", text: "text-cyan-900", border: "border-cyan-300" },
+      { name: "CNC", bg: "bg-orange-100", text: "text-orange-900", border: "border-orange-300" },
+      { name: "Atelier", bg: "bg-stone-200", text: "text-stone-900", border: "border-stone-400" },
+      { name: "Recherche", bg: "bg-emerald-100", text: "text-emerald-900", border: "border-emerald-300" },
+      { name: "Réunion", bg: "bg-sky-100", text: "text-sky-900", border: "border-sky-300" },
+      { name: "Admin", bg: "bg-slate-200", text: "text-slate-800", border: "border-slate-300" }
+    ];
+
+    // --- ÉTAT GLOBAL ---
+    let state = {
+      entries: [],
+      selectedEntity: "Froidevaux", // 'Froidevaux' ou 'Wprojet'
+      selectedType: "",
+      periodFilter: "week",         // 'week', 'month', 'all'
+      groupBy: "project",           // 'project', 'entity', 'client', 'type'
+      editingId: null,
+      currentPhotos: [],            // Photos temporaires pour l'entrée en cours (Base64)
+      pinConfig: {
+        enabled: false,
+        code: "1234"
+      },
+      isLocked: false,
+      pinInput: ""
+    };
+
+    const STORAGE_KEY = "protomanager_data_v2";
+    const PIN_KEY = "protomanager_pin_config";
+
+    // --- INDEXEDDB POUR LES PHOTOS & DONNÉES volumineuses ---
+    const DB_NAME = "ProtoManagerDB";
+    const DB_VERSION = 1;
+    let db = null;
+
+    function initIndexedDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = (e) => {
+          const dbInstance = e.target.result;
+          if (!dbInstance.objectStoreNames.contains("entries")) {
+            dbInstance.createObjectStore("entries", { keyPath: "id" });
+          }
+        };
+        req.onsuccess = (e) => {
+          db = e.target.result;
+          resolve(db);
+        };
+        req.onerror = (e) => {
+          console.warn("IndexedDB non disponible, utilisation localStorage", e);
+          resolve(null);
+        };
+      });
+    }
+
+    // --- EXEMPLES DE DÉMARRAGE AVEC ENTITÉ FROIDEVAUX / WPROJET ---
+    function getSampleEntries() {
+      const today = new Date();
+      const fmtDate = (d) => d.toISOString().split('T')[0];
+      
+      const d1 = new Date(today);
+      const d2 = new Date(today);
+      d2.setDate(today.getDate() - 1);
+
+      return [
+        {
+          id: "demo-1",
+          date: fmtDate(d1),
+          entity: "Froidevaux",
+          project: "Box Liberator",
+          client: "Remo Oser",
+          minutes: 30,
+          type: "CNC",
+          notes: "Usinage CNC plateau MDF et perçages de fixation.",
+          photos: [],
+          createdAt: Date.now() - 100000
+        },
+        {
+          id: "demo-2",
+          date: fmtDate(d2),
+          entity: "Wprojet",
+          project: "Box Liberator",
+          client: "Remo Oser",
+          minutes: 45,
+          type: "Atelier",
+          notes: "Assemblage en atelier et test de coulissement de la charnière.",
+          photos: [],
+          createdAt: Date.now() - 200000
+        },
+        {
+          id: "demo-3",
+          date: fmtDate(d2),
+          entity: "Froidevaux",
+          project: "Box Liberator",
+          client: "Remo Oser",
+          minutes: 60,
+          type: "Dessin CAD",
+          notes: "Plans Vectorworks et révision cotes modèle 3D.",
+          photos: [],
+          createdAt: Date.now() - 300000
+        }
+      ];
+    }
+
+    // --- PARSING DE DURÉE INTELLIGENT ---
+    function parseDurationToMinutes(str) {
+      if (!str) return 0;
+      let s = str.trim().toLowerCase().replace(',', '.');
+
+      if (/^\d{1,2}:\d{2}$/.test(s)) {
+        const [h, m] = s.split(':').map(Number);
+        return (h * 60) + m;
+      }
+      if (s.includes('h')) {
+        const parts = s.split('h');
+        const hours = parseFloat(parts[0]) || 0;
+        let mins = 0;
+        if (parts[1]) {
+          const cleanMins = parts[1].replace(/m|min|mins/g, '').trim();
+          mins = parseFloat(cleanMins) || 0;
+        }
+        return Math.round(hours * 60 + mins);
+      }
+      if (s.endsWith('m') || s.endsWith('min')) {
+        return Math.round(parseFloat(s) || 0);
+      }
+      const num = parseFloat(s);
+      if (isNaN(num)) return 0;
+      if (num < 10) return Math.round(num * 60);
+      return Math.round(num);
+    }
+
+    function formatMinutes(minutes) {
+      if (!minutes || minutes <= 0) return "0 min";
+      const h = Math.floor(minutes / 60);
+      const m = minutes % 60;
+      if (h === 0) return `${m} min`;
+      if (m === 0) return `${h} h`;
+      return `${h} h ${m.toString().padStart(2, '0')}`;
+    }
+
+    function formatMinutesDecimalHours(minutes) {
+      if (!minutes) return "0 h";
+      const h = Math.floor(minutes / 60);
+      const m = minutes % 60;
+      if (m === 0) return `${h} h`;
+      return `${h} h ${m} min`;
+    }
+
+    function formatDateFr(isoDateStr) {
+      if (!isoDateStr) return "";
+      const [y, m, d] = isoDateStr.split('-').map(Number);
+      const date = new Date(y, m - 1, d);
+      return new Intl.DateTimeFormat('fr-FR', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+      }).format(date);
+    }
+
+    function formatDateShortFr(isoDateStr) {
+      if (!isoDateStr) return "";
+      const [y, m, d] = isoDateStr.split('-').map(Number);
+      const date = new Date(y, m - 1, d);
+      return new Intl.DateTimeFormat('fr-FR', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long'
+      }).format(date);
+    }
+
+    // --- SAUVEGARDE & CHARGEMENT ---
+    async function loadData() {
+      // Charger configuration PIN
+      try {
+        const pinRaw = localStorage.getItem(PIN_KEY);
+        if (pinRaw) {
+          state.pinConfig = JSON.parse(pinRaw);
+        }
+      } catch (e) {
+        console.error("Erreur lecture PIN config", e);
+      }
+
+      // Appliquer verrouillage si activé
+      updateLockUI();
+      if (state.pinConfig.enabled) {
+        lockApp();
+      }
+
+      // Charger entrées depuis IndexedDB ou fallback localStorage
+      await initIndexedDB();
+      let loadedEntries = null;
+
+      if (db) {
+        try {
+          loadedEntries = await new Promise((resolve) => {
+            const tx = db.transaction("entries", "readonly");
+            const store = tx.objectStore("entries");
+            const req = store.getAll();
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => resolve(null);
+          });
+        } catch (e) {
+          console.warn("Erreur lecture IndexedDB", e);
+        }
+      }
+
+      if (!loadedEntries || loadedEntries.length === 0) {
+        try {
+          const stored = localStorage.getItem(STORAGE_KEY);
+          if (stored) {
+            loadedEntries = JSON.parse(stored);
+          }
+        } catch (e) {}
+      }
+
+      if (loadedEntries && loadedEntries.length > 0) {
+        state.entries = loadedEntries;
+      } else {
+        state.entries = getSampleEntries();
+        saveData();
+      }
+    }
+
+    async function saveData() {
+      // 1. Sauvegarde dans IndexedDB (idéal pour les photos volumineuses)
+      if (db) {
+        try {
+          const tx = db.transaction("entries", "readwrite");
+          const store = tx.objectStore("entries");
+          store.clear();
+          state.entries.forEach(ent => store.put(ent));
+        } catch (e) {
+          console.warn("Erreur écriture IndexedDB", e);
+        }
+      }
+
+      // 2. Sauvegarde de secours localStorage (en limitant les photos trop lourdes si nécessaire)
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.entries));
+      } catch (e) {
+        console.warn("Quota localStorage dépassé (photos) - les photos sont préservées dans IndexedDB", e);
+      }
+    }
+
+    function savePinConfig() {
+      try {
+        localStorage.setItem(PIN_KEY, JSON.stringify(state.pinConfig));
+      } catch (e) {}
+      updateLockUI();
+    }
+
+    // --- GESTION DU CODE PIN ---
+    const pinLockScreen = document.getElementById('pinLockScreen');
+    const pinDots = document.querySelectorAll('.pin-dot');
+    const pinErrorMessage = document.getElementById('pinErrorMessage');
+    const btnQuickLock = document.getElementById('btnQuickLock');
+
+    function updateLockUI() {
+      if (state.pinConfig.enabled) {
+        btnQuickLock.classList.remove('hidden');
+      } else {
+        btnQuickLock.classList.add('hidden');
+      }
+    }
+
+    function lockApp() {
+      state.isLocked = true;
+      state.pinInput = "";
+      updatePinDots();
+      pinErrorMessage.textContent = "";
+      pinLockScreen.classList.remove('hidden');
+    }
+
+    function unlockApp() {
+      state.isLocked = false;
+      state.pinInput = "";
+      pinLockScreen.classList.add('hidden');
+    }
+
+    function updatePinDots() {
+      pinDots.forEach((dot, idx) => {
+        if (idx < state.pinInput.length) {
+          dot.classList.add('active');
+        } else {
+          dot.classList.remove('active');
+        }
+      });
+    }
+
+    function handlePinNumber(digit) {
+      if (state.pinInput.length < 4) {
+        state.pinInput += digit;
+        updatePinDots();
+
+        if (state.pinInput.length === 4) {
+          setTimeout(verifyPin, 100);
+        }
+      }
+    }
+
+    function verifyPin() {
+      if (state.pinInput === state.pinConfig.code) {
+        unlockApp();
+      } else {
+        pinErrorMessage.textContent = "Code PIN incorrect";
+        const box = pinLockScreen.querySelector('.max-w-xs');
+        box.classList.add('shake');
+        setTimeout(() => box.classList.remove('shake'), 400);
+        state.pinInput = "";
+        updatePinDots();
+      }
+    }
+
+    // Événements pavé tactile
+    document.querySelectorAll('.pin-num-btn').forEach(btn => {
+      btn.addEventListener('click', () => handlePinNumber(btn.textContent.trim()));
+    });
+
+    document.getElementById('btnPinDelete').addEventListener('click', () => {
+      state.pinInput = state.pinInput.slice(0, -1);
+      updatePinDots();
+      pinErrorMessage.textContent = "";
+    });
+
+    document.getElementById('btnPinClear').addEventListener('click', () => {
+      state.pinInput = "";
+      updatePinDots();
+      pinErrorMessage.textContent = "";
+    });
+
+    btnQuickLock.addEventListener('click', lockApp);
+
+    // Support clavier physique pour le PIN
+    window.addEventListener('keydown', (e) => {
+      if (!state.isLocked) return;
+      if (e.key >= '0' && e.key <= '9') {
+        handlePinNumber(e.key);
+      } else if (e.key === 'Backspace') {
+        state.pinInput = state.pinInput.slice(0, -1);
+        updatePinDots();
+      }
+    });
+
+    // --- MODALE PARAMÈTRES ---
+    const settingsModal = document.getElementById('settingsModal');
+    const togglePinSwitch = document.getElementById('togglePinSwitch');
+    const pinConfigSection = document.getElementById('pinConfigSection');
+    const inputNewPin = document.getElementById('inputNewPin');
+
+    document.getElementById('btnOpenSettings').addEventListener('click', () => {
+      togglePinSwitch.checked = state.pinConfig.enabled;
+      inputNewPin.value = state.pinConfig.code || "1234";
+      pinConfigSection.classList.toggle('hidden', !state.pinConfig.enabled);
+      settingsModal.classList.remove('hidden');
+    });
+
+    document.getElementById('btnCloseSettings').addEventListener('click', () => {
+      settingsModal.classList.add('hidden');
+    });
+
+    togglePinSwitch.addEventListener('change', () => {
+      pinConfigSection.classList.toggle('hidden', !togglePinSwitch.checked);
+    });
+
+    document.getElementById('btnSaveSettings').addEventListener('click', () => {
+      const enabled = togglePinSwitch.checked;
+      const code = inputNewPin.value.trim();
+
+      if (enabled && (!code || code.length < 4)) {
+        alert("Veuillez définir un code PIN à 4 chiffres.");
+        return;
+      }
+
+      state.pinConfig.enabled = enabled;
+      if (enabled) {
+        state.pinConfig.code = code;
+      }
+      savePinConfig();
+      settingsModal.classList.add('hidden');
+      alert("Paramètres enregistrés pour cet appareil !");
+    });
+
+
+    // --- GESTION DES PHOTOS ET COMPRESSION CANVAS ---
+    const inputPhotoFile = document.getElementById('inputPhotoFile');
+    const btnTriggerPhoto = document.getElementById('btnTriggerPhoto');
+    const photoPreviewsList = document.getElementById('photoPreviewsList');
+
+    btnTriggerPhoto.addEventListener('click', () => inputPhotoFile.click());
+
+    inputPhotoFile.addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files);
+      if (files.length === 0) return;
+
+      for (const file of files) {
+        try {
+          const compressedBase64 = await compressImageFile(file, 1200, 0.72);
+          state.currentPhotos.push(compressedBase64);
+        } catch (err) {
+          console.error("Erreur compression image", err);
+        }
+      }
+      inputPhotoFile.value = "";
+      renderPhotoPreviews();
+    });
+
+    // Compresser une image avec Canvas (idéal sur iPhone & web mobile)
+    function compressImageFile(file, maxWidth = 1200, quality = 0.72) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const img = new Image();
+          img.onload = () => {
+            let width = img.width;
+            let height = img.height;
+
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            const compressed = canvas.toDataURL('image/jpeg', quality);
+            resolve(compressed);
+          };
+          img.onerror = reject;
+          img.src = event.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function renderPhotoPreviews() {
+      photoPreviewsList.innerHTML = '';
+      state.currentPhotos.forEach((src, idx) => {
+        const wrap = document.createElement('div');
+        wrap.className = "relative w-14 h-14 rounded-xl overflow-hidden border border-slate-200 group flex-shrink-0";
+        wrap.innerHTML = `
+          <img src="${src}" class="w-full h-full object-cover">
+          <button type="button" class="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-slate-900/80 text-white flex items-center justify-center hover:bg-rose-600 transition text-[10px]">
+            ×
+          </button>
+        `;
+        wrap.querySelector('button').addEventListener('click', () => {
+          state.currentPhotos.splice(idx, 1);
+          renderPhotoPreviews();
+        });
+        photoPreviewsList.appendChild(wrap);
+      });
+    }
+
+    // Visionneuse Lightbox
+    const photoLightbox = document.getElementById('photoLightbox');
+    const lightboxImage = document.getElementById('lightboxImage');
+    const lightboxCaption = document.getElementById('lightboxCaption');
+
+    function openLightbox(src, captionText = "") {
+      lightboxImage.src = src;
+      lightboxCaption.textContent = captionText;
+      photoLightbox.classList.remove('hidden');
+    }
+
+    document.getElementById('btnCloseLightbox').addEventListener('click', () => {
+      photoLightbox.classList.add('hidden');
+    });
+    photoLightbox.addEventListener('click', (e) => {
+      if (e.target === photoLightbox) photoLightbox.classList.add('hidden');
+    });
+
+
+    // --- CHOIX ENTITÉ : FROIDEVAUX / WPROJET ---
+    const entityButtons = document.querySelectorAll('.btn-entity-choice');
+
+    entityButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const ent = btn.dataset.entity;
+        state.selectedEntity = ent;
+        updateEntityButtonsUI();
+      });
+    });
+
+    function updateEntityButtonsUI() {
+      entityButtons.forEach(btn => {
+        const ent = btn.dataset.entity;
+        if (ent === state.selectedEntity) {
+          if (ent === "Froidevaux") {
+            btn.className = "btn-entity-choice flex items-center justify-center gap-2 py-2.5 px-3 rounded-2xl border-2 transition-all font-bold text-xs bg-blue-50/80 border-blue-600 text-blue-900 shadow-xs";
+          } else {
+            btn.className = "btn-entity-choice flex items-center justify-center gap-2 py-2.5 px-3 rounded-2xl border-2 transition-all font-bold text-xs bg-purple-50/80 border-purple-600 text-purple-900 shadow-xs";
+          }
+        } else {
+          btn.className = "btn-entity-choice flex items-center justify-center gap-2 py-2.5 px-3 rounded-2xl border-2 transition-all font-bold text-xs bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300";
+        }
+      });
+    }
+
+
+    // --- FORMULAIRE SAISIE ENTRÉE ---
+    const inputDate = document.getElementById('inputDate');
+    const inputProject = document.getElementById('inputProject');
+    const inputClient = document.getElementById('inputClient');
+    const inputDuration = document.getElementById('inputDuration');
+    const inputNotes = document.getElementById('inputNotes');
+    const dateHumanLabel = document.getElementById('dateHumanLabel');
+    const editEntryId = document.getElementById('editEntryId');
+    const formTitle = document.getElementById('formTitle');
+    const btnSubmitText = document.getElementById('btnSubmitText');
+    const btnCancelEdit = document.getElementById('btnCancelEdit');
+
+    function initDateInputs() {
+      const today = new Date().toISOString().split('T')[0];
+      inputDate.value = today;
+      updateDateLabel();
+
+      inputDate.addEventListener('change', updateDateLabel);
+
+      document.getElementById('btnDateToday').addEventListener('click', () => {
+        inputDate.value = new Date().toISOString().split('T')[0];
+        updateDateLabel();
+      });
+
+      document.getElementById('btnDateYesterday').addEventListener('click', () => {
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        inputDate.value = d.toISOString().split('T')[0];
+        updateDateLabel();
+      });
+    }
+
+    function updateDateLabel() {
+      if (!inputDate.value) {
+        dateHumanLabel.textContent = "";
+        return;
+      }
+      dateHumanLabel.textContent = formatDateShortFr(inputDate.value);
+    }
+
+    // Raccourcis durée
+    document.querySelectorAll('.btn-quick-dur').forEach(btn => {
+      btn.addEventListener('click', () => {
+        inputDuration.value = btn.dataset.val;
+      });
+    });
+
+    // Tags de Type
+    function renderTypeTags() {
+      const container = document.getElementById('typeTagsContainer');
+      container.innerHTML = '';
+
+      DEFAULT_TYPES.forEach(t => {
+        const isSelected = state.selectedType === t.name;
+        const pill = document.createElement('button');
+        pill.type = 'button';
+        pill.className = `px-3 py-1.5 text-xs rounded-xl border transition-all font-bold ${
+          isSelected 
+            ? `${t.bg} ${t.text} ${t.border} ring-2 ring-slate-900 shadow-sm scale-105` 
+            : `${t.bg} ${t.text} ${t.border} opacity-70 hover:opacity-100 hover:scale-102`
+        }`;
+        pill.textContent = t.name;
+        pill.addEventListener('click', () => {
+          state.selectedType = (state.selectedType === t.name) ? "" : t.name;
+          renderTypeTags();
+        });
+        container.appendChild(pill);
+      });
+    }
+
+    function updateDatalistsAndPills() {
+      const projects = [...new Set(state.entries.map(e => e.project).filter(Boolean))];
+      const clients = [...new Set(state.entries.map(e => e.client).filter(Boolean))];
+
+      document.getElementById('recentProjectsList').innerHTML = 
+        projects.map(p => `<option value="${escapeHtml(p)}">`).join('');
+
+      document.getElementById('recentClientsList').innerHTML = 
+        clients.map(c => `<option value="${escapeHtml(c)}">`).join('');
+
+      const pillsContainer = document.getElementById('quickProjectPills');
+      pillsContainer.innerHTML = '';
+      projects.slice(0, 5).forEach(p => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = "px-2.5 py-1 text-[11px] rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition";
+        b.textContent = p;
+        b.addEventListener('click', () => {
+          inputProject.value = p;
+        });
+        pillsContainer.appendChild(b);
+      });
+    }
+
+    // Soumission
+    document.getElementById('entryForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+
+      const durationStr = inputDuration.value.trim();
+      const minutes = parseDurationToMinutes(durationStr);
+
+      if (minutes <= 0) {
+        alert("Veuillez indiquer une durée valide (ex: 45, 1h30, 2.5)");
+        inputDuration.focus();
+        return;
+      }
+
+      const entryData = {
+        date: inputDate.value,
+        entity: state.selectedEntity || "Froidevaux",
+        project: inputProject.value.trim(),
+        client: inputClient.value.trim(),
+        minutes: minutes,
+        type: state.selectedType,
+        notes: inputNotes.value.trim(),
+        photos: [...state.currentPhotos],
+        updatedAt: Date.now()
+      };
+
+      if (state.editingId) {
+        const idx = state.entries.findIndex(it => it.id === state.editingId);
+        if (idx !== -1) {
+          state.entries[idx] = {
+            ...state.entries[idx],
+            ...entryData
+          };
+        }
+        cancelEditMode();
+      } else {
+        const newEntry = {
+          id: 'proto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+          ...entryData,
+          createdAt: Date.now()
+        };
+        state.entries.unshift(newEntry);
+      }
+
+      saveData();
+      renderAll();
+
+      // Reset
+      inputDuration.value = "";
+      inputNotes.value = "";
+      state.currentPhotos = [];
+      renderPhotoPreviews();
+      state.selectedType = "";
+      renderTypeTags();
+      inputDuration.focus();
+    });
+
+    btnCancelEdit.addEventListener('click', cancelEditMode);
+
+    function startEditMode(entry) {
+      state.editingId = entry.id;
+      editEntryId.value = entry.id;
+      inputDate.value = entry.date;
+      updateDateLabel();
+      state.selectedEntity = entry.entity || "Froidevaux";
+      updateEntityButtonsUI();
+      inputProject.value = entry.project;
+      inputClient.value = entry.client || "";
+      inputDuration.value = formatMinutes(entry.minutes);
+      inputNotes.value = entry.notes || "";
+      state.selectedType = entry.type || "";
+      state.currentPhotos = [...(entry.photos || [])];
+      renderPhotoPreviews();
+      renderTypeTags();
+
+      formTitle.textContent = "Modifier la session";
+      btnSubmitText.textContent = "Mettre à jour";
+      btnCancelEdit.classList.remove('hidden');
+
+      document.querySelector('section').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function cancelEditMode() {
+      state.editingId = null;
+      editEntryId.value = "";
+      formTitle.textContent = "Nouvelle entrée";
+      btnSubmitText.textContent = "Ajouter l'entrée";
+      btnCancelEdit.classList.add('hidden');
+      inputDuration.value = "";
+      inputNotes.value = "";
+      state.currentPhotos = [];
+      renderPhotoPreviews();
+      state.selectedType = "";
+      renderTypeTags();
+    }
+
+    function deleteEntry(id) {
+      if (confirm("Supprimer cette session ?")) {
+        state.entries = state.entries.filter(e => e.id !== id);
+        if (state.editingId === id) cancelEditMode();
+        saveData();
+        renderAll();
+      }
+    }
+
+
+    // --- FILTRAGE DE PÉRIODE ---
+    function isDateInPeriod(isoDate, period) {
+      if (period === 'all') return true;
+      const [y, m, d] = isoDate.split('-').map(Number);
+      const target = new Date(y, m - 1, d);
+      const now = new Date();
+
+      if (period === 'month') {
+        return target.getFullYear() === now.getFullYear() && target.getMonth() === now.getMonth();
+      }
+
+      if (period === 'week') {
+        const curr = new Date(now);
+        const day = curr.getDay();
+        const diff = curr.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(curr.setDate(diff));
+        monday.setHours(0,0,0,0);
+        
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        sunday.setHours(23,59,59,999);
+
+        return target >= monday && target <= sunday;
+      }
+      return true;
+    }
+
+    function getPeriodLabel(period) {
+      const now = new Date();
+      if (period === 'all') return "Toutes les dates";
+      if (period === 'month') {
+        return "Mois de " + new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' }).format(now);
+      }
+      if (period === 'week') {
+        const curr = new Date(now);
+        const day = curr.getDay();
+        const diff = curr.getDate() - day + (day === 0 ? -6 : 1);
+        const mon = new Date(curr.setDate(diff));
+        const sun = new Date(mon);
+        sun.setDate(mon.getDate() + 6);
+        return `Semaine du ${mon.getDate()} au ${sun.getDate()} ${new Intl.DateTimeFormat('fr-FR', { month: 'short' }).format(sun)}`;
+      }
+      return "";
+    }
+
+    document.querySelectorAll('.btn-period').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.btn-period').forEach(b => {
+          b.className = "btn-period px-3 py-1.5 rounded-xl hover:text-slate-900";
+        });
+        btn.className = "btn-period px-3 py-1.5 rounded-xl bg-white text-slate-900 font-bold shadow-xs";
+        state.periodFilter = btn.dataset.period;
+        renderAll();
+      });
+    });
+
+    document.querySelectorAll('.btn-groupby').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.btn-groupby').forEach(b => {
+          b.className = "btn-groupby px-2.5 py-1 rounded-lg hover:text-slate-900";
+        });
+        btn.className = "btn-groupby px-2.5 py-1 rounded-lg bg-white text-slate-900 font-bold shadow-xs";
+        state.groupBy = btn.dataset.groupby;
+        renderSynthesis();
+      });
+    });
+
+
+    // --- RENDU SYNTHÈSE TOTAUX (Avec Froidevaux & Wprojet) ---
+    function renderSynthesis() {
+      const filtered = state.entries.filter(e => isDateInPeriod(e.date, state.periodFilter));
+      
+      const totalMinutes = filtered.reduce((acc, it) => acc + (it.minutes || 0), 0);
+      const froidMinutes = filtered.filter(it => (it.entity || "Froidevaux") === "Froidevaux")
+                                   .reduce((acc, it) => acc + (it.minutes || 0), 0);
+      const wprojMinutes = filtered.filter(it => it.entity === "Wprojet")
+                                   .reduce((acc, it) => acc + (it.minutes || 0), 0);
+
+      // Grand Total Commun
+      document.getElementById('synthTotalDuration').textContent = formatMinutesDecimalHours(totalMinutes);
+      
+      // Séparation Froidevaux vs Wprojet
+      document.getElementById('totalFroidevauxHours').textContent = formatMinutesDecimalHours(froidMinutes);
+      document.getElementById('totalWprojetHours').textContent = formatMinutesDecimalHours(wprojMinutes);
+
+      const fPct = totalMinutes > 0 ? Math.round((froidMinutes / totalMinutes) * 100) : 0;
+      const wPct = totalMinutes > 0 ? Math.round((wprojMinutes / totalMinutes) * 100) : 0;
+
+      document.getElementById('badgeFroidevauxPct').textContent = `${fPct}%`;
+      document.getElementById('badgeWprojetPct').textContent = `${wPct}%`;
+
+      const distinctDays = new Set(filtered.map(e => e.date)).size;
+      const count = filtered.length;
+      const countStr = count === 1 ? "1 session" : `${count} sessions`;
+      const daysStr = distinctDays === 1 ? "1 jour" : `${distinctDays} jours`;
+
+      document.getElementById('synthPeriodLabel').textContent = 
+        `${getPeriodLabel(state.periodFilter)} · ${countStr} · ${daysStr}`;
+
+      // Regroupement
+      const groupMap = {};
+      filtered.forEach(it => {
+        let key = "";
+        if (state.groupBy === "project") key = it.project || "(Sans projet)";
+        else if (state.groupBy === "entity") key = it.entity || "Froidevaux";
+        else if (state.groupBy === "client") key = it.client || "(Sans client)";
+        else if (state.groupBy === "type") key = it.type || "(Non catégorisé)";
+
+        groupMap[key] = (groupMap[key] || 0) + (it.minutes || 0);
+      });
+
+      const listContainer = document.getElementById('breakdownList');
+      listContainer.innerHTML = '';
+
+      const sortedKeys = Object.keys(groupMap).sort((a,b) => groupMap[b] - groupMap[a]);
+
+      if (sortedKeys.length === 0) {
+        listContainer.innerHTML = `<p class="text-xs text-slate-400 italic">Aucune donnée pour ce filtre</p>`;
+        return;
+      }
+
+      sortedKeys.forEach(key => {
+        const mins = groupMap[key];
+        const pct = totalMinutes > 0 ? Math.round((mins / totalMinutes) * 100) : 0;
+
+        let barColor = "bg-slate-700";
+        if (key === "Froidevaux") barColor = "bg-blue-600";
+        if (key === "Wprojet") barColor = "bg-purple-600";
+
+        const row = document.createElement('div');
+        row.className = "space-y-1.5";
+        row.innerHTML = `
+          <div class="flex justify-between items-center text-xs">
+            <span class="font-bold text-slate-800 truncate max-w-[200px] sm:max-w-[280px]" title="${escapeHtml(key)}">${escapeHtml(key)}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-slate-600 font-semibold">${formatMinutes(mins)}</span>
+              <span class="text-[11px] text-slate-400 w-8 text-right font-mono">${pct}%</span>
+            </div>
+          </div>
+          <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+            <div class="${barColor} h-2.5 rounded-full transition-all duration-500" style="width: ${pct}%"></div>
+          </div>
+        `;
+        listContainer.appendChild(row);
+      });
+    }
+
+
+    // --- RENDU HISTORIQUE (Avec Badges Froidevaux/Wprojet et Photos) ---
+    function renderHistory() {
+      const filtered = state.entries
+        .filter(e => isDateInPeriod(e.date, state.periodFilter))
+        .sort((a, b) => {
+          if (b.date !== a.date) return b.date.localeCompare(a.date);
+          return (b.createdAt || 0) - (a.createdAt || 0);
+        });
+
+      const container = document.getElementById('historyList');
+      const emptyState = document.getElementById('historyEmptyState');
+      const countBadge = document.getElementById('historyCountBadge');
+
+      countBadge.textContent = filtered.length === 1 ? "1 session" : `${filtered.length} sessions`;
+
+      if (filtered.length === 0) {
+        container.innerHTML = '';
+        emptyState.classList.remove('hidden');
+        return;
+      }
+      emptyState.classList.add('hidden');
+      container.innerHTML = '';
+
+      const groupedByDate = {};
+      filtered.forEach(it => {
+        if (!groupedByDate[it.date]) groupedByDate[it.date] = [];
+        groupedByDate[it.date].push(it);
+      });
+
+      Object.keys(groupedByDate).forEach(dateStr => {
+        const entriesForDay = groupedByDate[dateStr];
+        const dayTotalMins = entriesForDay.reduce((acc, it) => acc + (it.minutes || 0), 0);
+
+        const groupEl = document.createElement('div');
+        groupEl.className = "border-b border-slate-100 last:border-none pb-5 last:pb-0";
+
+        const header = document.createElement('div');
+        header.className = "flex items-center justify-between text-xs font-bold text-slate-800 border-b border-slate-100/80 pb-2 mb-3";
+        header.innerHTML = `
+          <span class="capitalize text-slate-900">${formatDateFr(dateStr)}</span>
+          <span class="text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded-md">${formatMinutes(dayTotalMins)}</span>
+        `;
+        groupEl.appendChild(header);
+
+        const entriesContainer = document.createElement('div');
+        entriesContainer.className = "space-y-3";
+
+        entriesForDay.forEach(entry => {
+          const isFroidevaux = (entry.entity || "Froidevaux") === "Froidevaux";
+          const typeConfig = DEFAULT_TYPES.find(t => t.name === entry.type) || { bg: "bg-slate-100", text: "text-slate-700", border: "border-slate-200" };
+
+          const entryEl = document.createElement('div');
+          entryEl.className = "group relative bg-slate-50/50 hover:bg-slate-50 p-3 sm:p-3.5 rounded-2xl border border-slate-100 transition";
+          
+          let photosHtml = '';
+          if (entry.photos && entry.photos.length > 0) {
+            photosHtml = `
+              <div class="flex flex-wrap gap-2 mt-2.5">
+                ${entry.photos.map((photoSrc, pIdx) => `
+                  <button type="button" class="btn-lightbox-photo relative w-12 h-12 rounded-xl overflow-hidden border border-slate-200 hover:opacity-90 transition active:scale-95" data-src="${photoSrc}" data-caption="${escapeHtml(entry.project)} - ${escapeHtml(entry.type || '')}">
+                    <img src="${photoSrc}" class="w-full h-full object-cover">
+                  </button>
+                `).join('')}
+              </div>
+            `;
+          }
+
+          entryEl.innerHTML = `
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex flex-wrap items-center gap-2">
+                <!-- Badge Entité Froidevaux (Bleu) ou Wprojet (Violet) -->
+                <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-bold border ${
+                  isFroidevaux ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-purple-50 text-purple-900 border-purple-200'
+                }">
+                  <span class="w-1.5 h-1.5 rounded-full ${isFroidevaux ? 'bg-blue-600' : 'bg-purple-600'}"></span>
+                  ${escapeHtml(entry.entity || "Froidevaux")}
+                </span>
+
+                <span class="font-extrabold text-slate-900 text-sm">${escapeHtml(entry.project)}</span>
+                ${entry.client ? `<span class="text-xs text-slate-500 font-medium">· ${escapeHtml(entry.client)}</span>` : ''}
+                ${entry.type ? `
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border ${typeConfig.bg} ${typeConfig.text} ${typeConfig.border}">
+                    ${escapeHtml(entry.type)}
+                  </span>
+                ` : ''}
+              </div>
+              <div class="text-sm font-black text-slate-900 whitespace-nowrap bg-white px-2 py-0.5 rounded-lg border border-slate-200 shadow-2xs">
+                ${formatMinutes(entry.minutes)}
+              </div>
+            </div>
+
+            ${entry.notes ? `
+              <p class="text-xs text-slate-600 mt-1.5 whitespace-pre-line leading-relaxed">${escapeHtml(entry.notes)}</p>
+            ` : ''}
+
+            ${photosHtml}
+
+            <div class="flex items-center gap-3 mt-2.5 text-[11px] text-slate-400">
+              <button class="btn-edit hover:text-emerald-800 font-bold transition">Modifier</button>
+              <button class="btn-delete hover:text-rose-600 font-semibold transition">Supprimer</button>
+            </div>
+          `;
+
+          entryEl.querySelector('.btn-edit').addEventListener('click', () => startEditMode(entry));
+          entryEl.querySelector('.btn-delete').addEventListener('click', () => deleteEntry(entry.id));
+
+          entryEl.querySelectorAll('.btn-lightbox-photo').forEach(b => {
+            b.addEventListener('click', () => openLightbox(b.dataset.src, b.dataset.caption));
+          });
+
+          entriesContainer.appendChild(entryEl);
+        });
+
+        groupEl.appendChild(entriesContainer);
+        container.appendChild(groupEl);
+      });
+    }
+
+    function renderAll() {
+      updateDatalistsAndPills();
+      renderSynthesis();
+      renderHistory();
+      if (window.lucide) lucide.createIcons();
+    }
+
+
+    // --- EXPORT CSV (Incluant l'entité Froidevaux / Wprojet) ---
+    document.getElementById('btnExportCsv').addEventListener('click', () => {
+      if (state.entries.length === 0) {
+        alert("Aucune donnée à exporter.");
+        return;
+      }
+
+      const rows = [
+        ["Date", "Entite", "Projet", "Client", "Duree_Minutes", "Duree_Formattee", "Type", "Notes", "Nb_Photos"]
+      ];
+
+      state.entries.forEach(e => {
+        rows.push([
+          e.date || "",
+          e.entity || "Froidevaux",
+          e.project || "",
+          e.client || "",
+          e.minutes || 0,
+          formatMinutes(e.minutes),
+          e.type || "",
+          (e.notes || "").replace(/\n/g, ' '),
+          (e.photos || []).length
+        ]);
+      });
+
+      const csvContent = "\uFEFF" + rows.map(r => 
+        r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(";")
+      ).join("\r\n");
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `ProtoManager_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+
+    // --- BACKUP & RESTAURATION JSON ---
+    document.getElementById('btnExportJson').addEventListener('click', () => {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.entries, null, 2));
+      const link = document.createElement("a");
+      link.setAttribute("href", dataStr);
+      link.setAttribute("download", `backup_protomanager_${new Date().toISOString().split('T')[0]}.json`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+
+    document.getElementById('btnImportJsonTrigger').addEventListener('click', () => {
+      document.getElementById('inputImportJson').click();
+    });
+
+    document.getElementById('inputImportJson').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        try {
+          const imported = JSON.parse(evt.target.result);
+          if (Array.isArray(imported)) {
+            if (confirm(`Restaurer ${imported.length} sessions et fusionner/remplacer ?`)) {
+              state.entries = imported;
+              saveData();
+              renderAll();
+              alert("Données restaurées avec succès !");
+            }
+          } else {
+            alert("Format JSON non reconnu.");
+          }
+        } catch (err) {
+          alert("Erreur lors de la lecture du fichier JSON.");
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    function escapeHtml(text) {
+      if (!text) return "";
+      return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // --- EXPORT PDF AVEC html2pdf & IMPRESSION ---
+    const pdfModal = document.getElementById('pdfModal');
+    const pdfContentToExport = document.getElementById('pdfContentToExport');
+    const pdfFilterEntity = document.getElementById('pdfFilterEntity');
+    const pdfFilterPeriod = document.getElementById('pdfFilterPeriod');
+    const pdfIncludePhotos = document.getElementById('pdfIncludePhotos');
+
+    document.getElementById('btnExportPdf').addEventListener('click', () => {
+      generatePdfPreview();
+      pdfModal.classList.remove('hidden');
+    });
+
+    document.getElementById('btnClosePdfModal').addEventListener('click', () => {
+      pdfModal.classList.add('hidden');
+    });
+
+    pdfFilterEntity.addEventListener('change', generatePdfPreview);
+    pdfFilterPeriod.addEventListener('change', generatePdfPreview);
+    pdfIncludePhotos.addEventListener('change', generatePdfPreview);
+
+    function generatePdfPreview() {
+      const entityFilter = pdfFilterEntity.value;
+      const periodFilter = pdfFilterPeriod.value === "current" ? state.periodFilter : pdfFilterPeriod.value;
+      const includePhotos = pdfIncludePhotos.checked;
+
+      // Filtrer les entrées
+      const filtered = state.entries.filter(e => {
+        const matchPeriod = isDateInPeriod(e.date, periodFilter);
+        const matchEntity = entityFilter === "all" || (e.entity || "Froidevaux") === entityFilter;
+        return matchPeriod && matchEntity;
+      }).sort((a, b) => b.date.localeCompare(a.date));
+
+      const totalMinutes = filtered.reduce((acc, it) => acc + (it.minutes || 0), 0);
+      const froidMinutes = filtered.filter(it => (it.entity || "Froidevaux") === "Froidevaux")
+                                   .reduce((acc, it) => acc + (it.minutes || 0), 0);
+      const wprojMinutes = filtered.filter(it => it.entity === "Wprojet")
+                                   .reduce((acc, it) => acc + (it.minutes || 0), 0);
+
+      const todayFr = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
+
+      let html = `
+        <!-- En-tête Rapport A4 -->
+        <div class="border-b-2 border-slate-900 pb-5 mb-6 flex justify-between items-start">
+          <div class="flex items-center gap-3">
+            <div class="w-12 h-12 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-xl">
+              P
+            </div>
+            <div>
+              <h1 class="text-2xl font-black tracking-tight text-slate-900">ProtoManager</h1>
+              <p class="text-xs text-slate-500 font-semibold uppercase tracking-wider">Rapport d'activité & Fiche de Prototypage</p>
+            </div>
+          </div>
+          <div class="text-right text-xs text-slate-500">
+            <div>Édité le : <strong class="text-slate-800">${todayFr}</strong></div>
+            <div>Période : <strong class="text-slate-800">${getPeriodLabel(periodFilter)}</strong></div>
+            ${entityFilter !== 'all' ? `<div>Filtre : <strong class="text-emerald-800">${entityFilter}</strong></div>` : ''}
+          </div>
+        </div>
+
+        <!-- Synthèse Totaux Facturation -->
+        <div class="grid grid-cols-3 gap-3 p-4 bg-slate-50 border border-slate-200 rounded-xl mb-6 text-center">
+          <div class="border-r border-slate-200 pr-2">
+            <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Général</div>
+            <div class="text-2xl font-black text-slate-900 mt-0.5">${formatMinutesDecimalHours(totalMinutes)}</div>
+            <div class="text-[10px] text-slate-400">${filtered.length} session(s)</div>
+          </div>
+          <div class="border-r border-slate-200 pr-2">
+            <div class="text-[11px] font-bold text-blue-700 uppercase tracking-wider flex items-center justify-center gap-1">
+              <span class="w-2 h-2 rounded-full bg-blue-600 inline-block"></span> Froidevaux
+            </div>
+            <div class="text-2xl font-black text-blue-950 mt-0.5">${formatMinutesDecimalHours(froidMinutes)}</div>
+            <div class="text-[10px] text-blue-600 font-medium">${totalMinutes > 0 ? Math.round((froidMinutes/totalMinutes)*100) : 0}% du total</div>
+          </div>
+          <div>
+            <div class="text-[11px] font-bold text-purple-700 uppercase tracking-wider flex items-center justify-center gap-1">
+              <span class="w-2 h-2 rounded-full bg-purple-600 inline-block"></span> Wprojet
+            </div>
+            <div class="text-2xl font-black text-purple-950 mt-0.5">${formatMinutesDecimalHours(wprojMinutes)}</div>
+            <div class="text-[10px] text-purple-600 font-medium">${totalMinutes > 0 ? Math.round((wprojMinutes/totalMinutes)*100) : 0}% du total</div>
+          </div>
+        </div>
+
+        <!-- Tableau chronologique détaillé -->
+        <div class="space-y-4">
+      `;
+
+      if (filtered.length === 0) {
+        html += `<p class="text-center text-sm text-slate-400 py-8 italic">Aucune donnée pour les critères sélectionnés.</p>`;
+      } else {
+        filtered.forEach((entry, idx) => {
+          const isFroidevaux = (entry.entity || "Froidevaux") === "Froidevaux";
+          const typeConfig = DEFAULT_TYPES.find(t => t.name === entry.type) || { bg: "bg-slate-100", text: "text-slate-700", border: "border-slate-200" };
+          
+          let photosMarkup = '';
+          if (includePhotos && entry.photos && entry.photos.length > 0) {
+            photosMarkup = `
+              <div class="grid grid-cols-3 sm:grid-cols-4 gap-2 mt-2.5 pt-2.5 border-t border-slate-100">
+                ${entry.photos.map(p => `
+                  <div class="h-24 rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
+                    <img src="${p}" class="w-full h-full object-cover">
+                  </div>
+                `).join('')}
+              </div>
+            `;
+          }
+
+          html += `
+            <div class="p-3.5 border border-slate-200 rounded-xl bg-white page-break-avoid">
+              <div class="flex justify-between items-start gap-3">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-xs font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded">${formatDateShortFr(entry.date)}</span>
+                  <span class="text-[11px] font-bold px-2 py-0.5 rounded border ${isFroidevaux ? 'bg-blue-50 text-blue-800 border-blue-200' : 'bg-purple-50 text-purple-800 border-purple-200'}">
+                    ${escapeHtml(entry.entity || 'Froidevaux')}
+                  </span>
+                  <span class="font-extrabold text-slate-900 text-sm">${escapeHtml(entry.project)}</span>
+                  ${entry.client ? `<span class="text-xs text-slate-500 font-medium">· ${escapeHtml(entry.client)}</span>` : ''}
+                  ${entry.type ? `<span class="text-[11px] font-bold px-2 py-0.5 rounded border ${typeConfig.bg} ${typeConfig.text} ${typeConfig.border}">${escapeHtml(entry.type)}</span>` : ''}
+                </div>
+                <div class="text-sm font-black text-slate-900 whitespace-nowrap">
+                  ${formatMinutes(entry.minutes)}
+                </div>
+              </div>
+
+              ${entry.notes ? `
+                <p class="text-xs text-slate-600 mt-2 leading-relaxed whitespace-pre-line">${escapeHtml(entry.notes)}</p>
+              ` : ''}
+
+              ${photosMarkup}
+            </div>
+          `;
+        });
+      }
+
+      html += `
+        </div>
+
+        <!-- Pied de page rapport -->
+        <div class="mt-8 pt-4 border-t border-slate-200 flex justify-between items-center text-[10px] text-slate-400">
+          <span>ProtoManager - Relevé certifié</span>
+          <span>Page 1 / 1</span>
+        </div>
+      `;
+
+      pdfContentToExport.innerHTML = html;
+    }
+
+    // Téléchargement PDF avec html2pdf.js
+    document.getElementById('btnDownloadPdf').addEventListener('click', () => {
+      const element = document.getElementById('pdfContentToExport');
+      const opt = {
+        margin: [10, 10, 10, 10],
+        filename: `Rapport_ProtoManager_${new Date().toISOString().split('T')[0]}.pdf`,
+        image: { type: 'jpeg', quality: 0.95 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
+      if (window.html2pdf) {
+        html2pdf().set(opt).from(element).save();
+      } else {
+        window.print();
+      }
+    });
+
+    // Impression directe
+    document.getElementById('btnDirectPrint').addEventListener('click', () => {
+      window.print();
+    });
+
+    // --- INITIALISATION AU CHARGEMENT ---
+    window.addEventListener('DOMContentLoaded', async () => {
+      initDateInputs();
+      renderTypeTags();
+      updateEntityButtonsUI();
+      await loadData();
+      renderAll();
+    });
+  </script>
+</body>
+</html>

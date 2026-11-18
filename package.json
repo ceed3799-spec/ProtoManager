@@ -1,0 +1,13 @@
+{
+  "name": "carnet-de-temps",
+  "version": "1.0.0",
+  "description": "Application de suivi de temps et gestion de projets",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
