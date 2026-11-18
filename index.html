@@ -20,6 +20,9 @@
   <script src="https://unpkg.com/lucide@latest"></script>
   <!-- html2pdf.js via CDN pour génération PDF directe -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <!-- Firebase SDK Compat pour synchronisation Cloud Firestore -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
   <script>
     tailwind.config = {
@@ -332,7 +335,12 @@
         <div>
           <div class="flex items-center gap-2">
             <h1 class="text-xl font-extrabold tracking-tight text-slate-900">ProtoManager</h1>
-            <span class="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-md border border-slate-200">v2.0</span>
+            <span class="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-md border border-slate-200">v2.1</span>
+            <!-- Badge Cloud Sync -->
+            <span id="cloudSyncBadge" class="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Cloud Firestore actif</span>
+            </span>
           </div>
           <p class="text-[11px] text-slate-500 font-medium hidden sm:block">Suivi de projets, prototypes & fabrication</p>
         </div>
@@ -445,6 +453,35 @@
           <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Client <span class="text-slate-400 font-normal lowercase">(facultatif)</span></label>
           <input type="text" id="inputClient" placeholder="Ex: Remo Oser, Acme..." class="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 bg-slate-50/70 text-slate-900 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition" list="recentClientsList">
           <datalist id="recentClientsList"></datalist>
+        </div>
+
+        <!-- CHRONOMÈTRE ATELIER / CNC -->
+        <div class="bg-slate-900 text-white p-3.5 rounded-2xl shadow-xs border border-slate-800">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+              <i data-lucide="timer" class="w-3.5 h-3.5"></i>
+              <span>Chronomètre direct</span>
+            </span>
+            <span id="chronoStateBadge" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">À l'arrêt</span>
+          </div>
+
+          <div class="flex items-center justify-between gap-3">
+            <div id="chronoDisplay" class="font-mono text-2xl font-black tracking-wider text-white">00:00:00</div>
+            
+            <div class="flex items-center gap-1.5">
+              <button type="button" id="btnChronoToggle" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition flex items-center gap-1.5 shadow-xs active:scale-95">
+                <i data-lucide="play" class="w-3.5 h-3.5" id="chronoIconPlay"></i>
+                <span id="chronoBtnLabel">Démarrer</span>
+              </button>
+              <button type="button" id="btnChronoApply" title="Arrêter et reporter dans la case Durée" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs transition border border-slate-700 active:scale-95 hidden flex items-center gap-1">
+                <i data-lucide="arrow-down-circle" class="w-3.5 h-3.5"></i>
+                <span>Reporter</span>
+              </button>
+              <button type="button" id="btnChronoReset" title="Réinitialiser à zéro" class="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition">
+                <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- DURÉE -->
@@ -621,6 +658,27 @@
   <!-- LOGIQUE DE L'APPLICATION (JavaScript)                          -->
   <!-- ============================================================== -->
   <script>
+    // --- INITIALISATION FIREBASE CLOUD FIRESTORE ---
+    const firebaseConfig = {
+      projectId: "protomanager-suivi-app",
+      appId: "1:1077931243873:web:cd8cdea22179714f516d20",
+      storageBucket: "protomanager-suivi-app.firebasestorage.app",
+      apiKey: "AIzaSyCpzSAcyMj-rPuB3MfDLzD10S1_ZvbeH8Q",
+      authDomain: "protomanager-suivi-app.firebaseapp.com",
+      messagingSenderId: "1077931243873"
+    };
+
+    let firestoreDb = null;
+    try {
+      if (window.firebase) {
+        firebase.initializeApp(firebaseConfig);
+        firestoreDb = firebase.firestore();
+        firestoreDb.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+        console.log("Cloud Firestore connecté !");
+      }
+    } catch (e) {
+      console.warn("Firestore mode offline :", e);
+    }
     // --- TYPES DE TÂCHES AVEC COULEURS 100% DISTINCTES ---
     const DEFAULT_TYPES = [
       { name: "Idées", bg: "bg-amber-100", text: "text-amber-900", border: "border-amber-300" },
@@ -797,7 +855,48 @@
       }).format(date);
     }
 
-    // --- SAUVEGARDE & CHARGEMENT ---
+    // --- SAUVEGARDE & CHARGEMENT (CLOUD FIRESTORE + INDEXEDDB) ---
+    function initFirestoreSync() {
+      if (!firestoreDb) return;
+
+      const badge = document.getElementById('cloudSyncBadge');
+      if (badge) badge.classList.remove('hidden');
+
+      firestoreDb.collection("entries").onSnapshot((snapshot) => {
+        if (!snapshot.empty) {
+          const cloudEntries = [];
+          snapshot.forEach(doc => {
+            cloudEntries.push(doc.data());
+          });
+          cloudEntries.sort((a,b) => {
+            if (b.date !== a.date) return b.date.localeCompare(a.date);
+            return (b.createdAt || 0) - (a.createdAt || 0);
+          });
+          state.entries = cloudEntries;
+          renderAll();
+          saveToIndexedDB(cloudEntries);
+        } else if (state.entries.length > 0) {
+          // Premier peuplement du cloud si vierge
+          state.entries.forEach(ent => {
+            firestoreDb.collection("entries").doc(ent.id).set(ent).catch(console.error);
+          });
+        }
+      }, (err) => {
+        console.warn("Firestore snapshot / offline :", err);
+      });
+    }
+
+    function saveToIndexedDB(entries) {
+      if (db) {
+        try {
+          const tx = db.transaction("entries", "readwrite");
+          const store = tx.objectStore("entries");
+          store.clear();
+          entries.forEach(ent => store.put(ent));
+        } catch (e) {}
+      }
+    }
+
     async function loadData() {
       // Charger configuration PIN
       try {
@@ -809,13 +908,11 @@
         console.error("Erreur lecture PIN config", e);
       }
 
-      // Appliquer verrouillage si activé
       updateLockUI();
       if (state.pinConfig.enabled) {
         lockApp();
       }
 
-      // Charger entrées depuis IndexedDB ou fallback localStorage
       await initIndexedDB();
       let loadedEntries = null;
 
@@ -846,28 +943,24 @@
         state.entries = loadedEntries;
       } else {
         state.entries = getSampleEntries();
-        saveData();
       }
+
+      // Initialiser la synchronisation Cloud Firestore temps réel
+      initFirestoreSync();
     }
 
     async function saveData() {
-      // 1. Sauvegarde dans IndexedDB (idéal pour les photos volumineuses)
-      if (db) {
-        try {
-          const tx = db.transaction("entries", "readwrite");
-          const store = tx.objectStore("entries");
-          store.clear();
-          state.entries.forEach(ent => store.put(ent));
-        } catch (e) {
-          console.warn("Erreur écriture IndexedDB", e);
-        }
-      }
+      saveToIndexedDB(state.entries);
 
-      // 2. Sauvegarde de secours localStorage (en limitant les photos trop lourdes si nécessaire)
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state.entries));
-      } catch (e) {
-        console.warn("Quota localStorage dépassé (photos) - les photos sont préservées dans IndexedDB", e);
+      } catch (e) {}
+
+      // Synchronisation Cloud Firestore
+      if (firestoreDb) {
+        state.entries.forEach(ent => {
+          firestoreDb.collection("entries").doc(ent.id).set(ent).catch(console.error);
+        });
       }
     }
 
@@ -1170,6 +1263,90 @@
       dateHumanLabel.textContent = formatDateShortFr(inputDate.value);
     }
 
+    // --- GESTION DU CHRONOMÈTRE DIRECT ---
+    let chronoInterval = null;
+    let chronoStartTime = 0;
+    let chronoElapsedTime = 0;
+    let isChronoRunning = false;
+
+    const chronoDisplay = document.getElementById('chronoDisplay');
+    const chronoStateBadge = document.getElementById('chronoStateBadge');
+    const btnChronoToggle = document.getElementById('btnChronoToggle');
+    const chronoBtnLabel = document.getElementById('chronoBtnLabel');
+    const btnChronoApply = document.getElementById('btnChronoApply');
+    const btnChronoReset = document.getElementById('btnChronoReset');
+
+    function formatChrono(ms) {
+      const totalSec = Math.floor(ms / 1000);
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const s = totalSec % 60;
+      return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+
+    function updateChronoUI() {
+      chronoDisplay.textContent = formatChrono(chronoElapsedTime);
+    }
+
+    btnChronoToggle.addEventListener('click', () => {
+      if (!isChronoRunning) {
+        isChronoRunning = true;
+        chronoStartTime = Date.now() - chronoElapsedTime;
+        chronoInterval = setInterval(() => {
+          chronoElapsedTime = Date.now() - chronoStartTime;
+          updateChronoUI();
+        }, 500);
+
+        chronoBtnLabel.textContent = "Pause";
+        btnChronoToggle.className = "px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition flex items-center gap-1.5 shadow-xs active:scale-95";
+        chronoStateBadge.textContent = "En cours...";
+        chronoStateBadge.className = "text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 animate-pulse";
+        btnChronoApply.classList.remove('hidden');
+      } else {
+        isChronoRunning = false;
+        clearInterval(chronoInterval);
+        chronoBtnLabel.textContent = "Reprendre";
+        btnChronoToggle.className = "px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition flex items-center gap-1.5 shadow-xs active:scale-95";
+        chronoStateBadge.textContent = "En pause";
+        chronoStateBadge.className = "text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-amber-400 border border-slate-700";
+      }
+      if (window.lucide) lucide.createIcons();
+    });
+
+    btnChronoApply.addEventListener('click', () => {
+      isChronoRunning = false;
+      clearInterval(chronoInterval);
+      
+      const minutesElapsed = Math.max(1, Math.round(chronoElapsedTime / 60000));
+      inputDuration.value = formatMinutes(minutesElapsed);
+      
+      // Feedback visuel
+      inputDuration.classList.add('ring-2', 'ring-emerald-500', 'bg-emerald-50');
+      setTimeout(() => {
+        inputDuration.classList.remove('ring-2', 'ring-emerald-500', 'bg-emerald-50');
+      }, 1000);
+
+      chronoElapsedTime = 0;
+      updateChronoUI();
+      chronoBtnLabel.textContent = "Démarrer";
+      btnChronoToggle.className = "px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition flex items-center gap-1.5 shadow-xs active:scale-95";
+      chronoStateBadge.textContent = "À l'arrêt";
+      chronoStateBadge.className = "text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700";
+      btnChronoApply.classList.add('hidden');
+    });
+
+    btnChronoReset.addEventListener('click', () => {
+      isChronoRunning = false;
+      clearInterval(chronoInterval);
+      chronoElapsedTime = 0;
+      updateChronoUI();
+      chronoBtnLabel.textContent = "Démarrer";
+      btnChronoToggle.className = "px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition flex items-center gap-1.5 shadow-xs active:scale-95";
+      chronoStateBadge.textContent = "À l'arrêt";
+      chronoStateBadge.className = "text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700";
+      btnChronoApply.classList.add('hidden');
+    });
+
     // Raccourcis durée
     document.querySelectorAll('.btn-quick-dur').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1337,6 +1514,9 @@
         state.entries = state.entries.filter(e => e.id !== id);
         if (state.editingId === id) cancelEditMode();
         saveData();
+        if (firestoreDb) {
+          firestoreDb.collection("entries").doc(id).delete().catch(console.error);
+        }
         renderAll();
       }
     }

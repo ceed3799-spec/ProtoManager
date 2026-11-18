@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Collection des sessions de prototypage et de temps
+    match /entries/{entryId} {
+      allow read, write: if true;
+    }
+  }
+}
